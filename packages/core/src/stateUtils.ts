@@ -1643,6 +1643,12 @@ export function macrostep(
   // Determine the next state based on the next microstep
   if (nextEvent.type !== XSTATE_INIT) {
     const transitions = selectTransitions(nextEvent, nextState);
+    if (!transitions.length) {
+      return {
+        state: nextState,
+        microstates: []
+      };
+    }
     nextState = microstep(
       transitions,
       state,
