@@ -111,17 +111,7 @@ export function createSpawner(
       if (actorRef._processingStatus === ProcessingStatus.Stopped) {
         return;
       }
-      try {
-        actorRef.start();
-      } catch (err) {
-        // TODO: why this isn't handled within `start`?
-        actorScope.system._relay(
-          actorRef,
-          actorScope.self,
-          createErrorActorEvent(actorRef.id, err)
-        );
-        return;
-      }
+      actorRef.start();
     });
     return actorRef;
   };
