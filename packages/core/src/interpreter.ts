@@ -231,14 +231,6 @@ export class Actor<TLogic extends AnyActorLogic>
     // Update state
     this._state = snapshot;
 
-    for (const observer of this.observers) {
-      try {
-        observer.next?.(snapshot);
-      } catch (err) {
-        reportUnhandledError(err);
-      }
-    }
-
     // Execute deferred effects
     let deferredFn: (typeof this._deferred)[number] | undefined;
 
@@ -257,6 +249,14 @@ export class Actor<TLogic extends AnyActorLogic>
           status: 'error',
           error: err
         };
+      }
+    }
+
+    for (const observer of this.observers) {
+      try {
+        observer.next?.(snapshot);
+      } catch (err) {
+        reportUnhandledError(err);
       }
     }
 
