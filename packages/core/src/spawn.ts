@@ -112,9 +112,14 @@ export function createSpawner(
         return;
       }
       try {
-        actorRef.start?.();
+        actorRef.start();
       } catch (err) {
-        actorScope.self.send(createErrorActorEvent(actorRef.id, err));
+        // TODO: why this isn't handled within `start`?
+        actorScope.system._relay(
+          actorRef,
+          actorScope.self,
+          createErrorActorEvent(actorRef.id, err)
+        );
         return;
       }
     });

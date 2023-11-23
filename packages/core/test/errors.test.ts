@@ -1,4 +1,10 @@
-import { createMachine, fromCallback, fromPromise, createActor } from '../src';
+import {
+  createMachine,
+  fromCallback,
+  fromPromise,
+  createActor,
+  assign
+} from '../src';
 
 const cleanups: (() => void)[] = [];
 function installGlobalOnErrorHandler(handler: (ev: ErrorEvent) => void) {
@@ -594,4 +600,120 @@ describe('error handling', () => {
       }
     });
   });
+
+  it('error thrown in initial custom entry action should error the actor', () => {
+    const machine = createMachine({
+      entry: () => {
+        throw new Error('error_thrown_in_initial_entry_action');
+      }
+    });
+
+    const errorSpy = jest.fn();
+
+    const actorRef = createActor(machine);
+    actorRef.subscribe({
+      error: errorSpy
+    });
+    actorRef.start();
+
+    const snapshot = actorRef.getSnapshot();
+    expect(snapshot.status).toBe('error');
+    expect((snapshot.error as any).message).toBe(
+      'error_thrown_in_initial_entry_action'
+    );
+    expect(errorSpy).toMatchMockCallsInlineSnapshot(`
+      [
+        [
+          [Error: error_thrown_in_initial_entry_action],
+        ],
+      ]
+    `);
+  });
+
+  it('error thrown when resolving initial builtin entry action should error the actor immediately', () => {
+    const machine = createMachine({
+      entry: assign(() => {
+        throw new Error('error_thrown_when_resolving_initial_entry_action');
+      })
+    });
+
+    const actorRef = createActor(machine);
+
+    const snapshot = actorRef.getSnapshot();
+    expect(snapshot.status).toBe('error');
+    expect((snapshot.error as any).message).toBe(
+      'error_thrown_when_resolving_initial_entry_action'
+    );
+
+    // TODO: figure out what to do with those lines and assertions related to them
+
+    // actorRef.subscribe({
+    //   error: errorSpy
+    // });
+    // actorRef.start();
+  });
+
+  it('error thrown by a custom entry action when transitioning should error the actor', () => {
+    const machine = createMachine({
+      initial: 'a',
+      states: {
+        a: {
+          on: {
+            NEXT: 'b'
+          }
+        },
+        b: {
+          entry: () => {
+            throw new Error(
+              'error_thrown_in_a_custom_entry_action_when_transitioning'
+            );
+          }
+        }
+      }
+    });
+
+    const errorSpy = jest.fn();
+
+    const actorRef = createActor(machine);
+    actorRef.subscribe({
+      error: errorSpy
+    });
+    actorRef.start();
+    actorRef.send({ type: 'NEXT' });
+
+    const snapshot = actorRef.getSnapshot();
+    expect(snapshot.status).toBe('error');
+    expect((snapshot.error as any).message).toBe(
+      'error_thrown_in_a_custom_entry_action_when_transitioning'
+    );
+    expect(errorSpy).toMatchMockCallsInlineSnapshot(`
+      [
+        [
+          [Error: error_thrown_in_a_custom_entry_action_when_transitioning],
+        ],
+      ]
+    `);
+  });
+
+  it(`shouldn't execute deferred initial actions that come after an action that errors`, () => {
+    const spy = jest.fn();
+
+    const machine = createMachine({
+      entry: [
+        () => {
+          throw new Error('error_thrown_in_initial_entry_action');
+        },
+        spy
+      ]
+    });
+
+    const actorRef = createActor(machine);
+    actorRef.subscribe({ error: () => {} });
+    actorRef.start();
+
+    expect(spy).toHaveBeenCalledTimes(0);
+  });
+
+  // TODO: recheck next observers vs error snapshots
+  // errors thrown by guards
 });

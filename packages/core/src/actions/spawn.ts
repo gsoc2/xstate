@@ -106,9 +106,14 @@ function executeSpawn(
       return;
     }
     try {
-      actorRef.start?.();
+      actorRef.start();
     } catch (err) {
-      (actorScope.self as AnyActor).send(createErrorActorEvent(id, err));
+      // TODO: why this isn't handled within `start`?
+      actorScope.system._relay(
+        actorRef,
+        actorScope.self,
+        createErrorActorEvent(id, err)
+      );
       return;
     }
   });

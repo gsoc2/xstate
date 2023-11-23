@@ -206,11 +206,22 @@ export class Actor<TLogic extends AnyActorLogic>
   }
 
   private _initState(persistedState?: Snapshot<unknown>) {
-    this._state = persistedState
-      ? this.logic.restoreState
-        ? this.logic.restoreState(persistedState, this._actorScope)
-        : persistedState
-      : this.logic.getInitialState(this._actorScope, this.options?.input);
+    try {
+      this._state = persistedState
+        ? this.logic.restoreState
+          ? this.logic.restoreState(persistedState, this._actorScope)
+          : persistedState
+        : this.logic.getInitialState(this._actorScope, this.options?.input);
+    } catch (err) {
+      // TODO: if we get here then it means that we assign a value to this._state that is not of the correct type
+      // we can't get the true `TSnapshot & { status: 'error'; }`, it's impossible
+      // should the error snapshot's type to always be a minimalistic one to reflect the reality?
+      this._state = {
+        status: 'error',
+        output: undefined,
+        error: err
+      } as any;
+    }
   }
 
   // array of functions to defer
@@ -220,18 +231,32 @@ export class Actor<TLogic extends AnyActorLogic>
     // Update state
     this._state = snapshot;
 
-    // Execute deferred effects
-    let deferredFn: (typeof this._deferred)[number] | undefined;
-
-    while ((deferredFn = this._deferred.shift())) {
-      deferredFn();
-    }
-
     for (const observer of this.observers) {
       try {
         observer.next?.(snapshot);
       } catch (err) {
         reportUnhandledError(err);
+      }
+    }
+
+    // Execute deferred effects
+    let deferredFn: (typeof this._deferred)[number] | undefined;
+
+    while ((deferredFn = this._deferred.shift())) {
+      try {
+        deferredFn();
+      } catch (err) {
+        // this error can only be caught when executing *initial* actions
+        // it's the only time when we call actions provided by the user through those deferreds
+        // when the actor is already running we always execute them synchronously while transitioning
+        // no "builtin deferred" should actually throw an error since they are either safe
+        // or the control flow is passed through the mailbox and errors should be caught by the `_process` used by the mailbox
+        this._deferred.length = 0;
+        this._state = {
+          ...(snapshot as any),
+          status: 'error',
+          error: err
+        };
       }
     }
 
@@ -365,7 +390,7 @@ export class Actor<TLogic extends AnyActorLogic>
       this.subscribe({
         next: (snapshot: Snapshot<unknown>) => {
           if (snapshot.status === 'active') {
-            this._parent!.send({
+            this.system._relay(this, this._parent!, {
               type: `xstate.snapshot.${this.id}`,
               snapshot
             });
@@ -403,6 +428,8 @@ export class Actor<TLogic extends AnyActorLogic>
         );
       // fallthrough
       case 'error':
+        // TODO: this should also notify observers about the error and stuff
+
         // TODO: rethink cleanup of observers, mailbox, etc
         return this;
     }
@@ -413,7 +440,14 @@ export class Actor<TLogic extends AnyActorLogic>
       } catch (err) {
         this._stopProcedure();
         this._error(err);
-        this._parent?.send(createErrorActorEvent(this.id, err));
+        if (this._parent) {
+          this.system._relay(
+            this,
+            this._parent,
+            createErrorActorEvent(this.id, err)
+          );
+        }
+
         return this;
       }
     }
@@ -433,7 +467,6 @@ export class Actor<TLogic extends AnyActorLogic>
   }
 
   private _process(event: EventFromLogic<TLogic>) {
-    // TODO: reexamine what happens when an action (or a guard or smth) throws
     let nextState;
     let caughtError;
     try {
@@ -446,9 +479,21 @@ export class Actor<TLogic extends AnyActorLogic>
     if (caughtError) {
       const { err } = caughtError;
 
+      this._state = {
+        ...(this._state as any),
+        status: 'error',
+        error: err
+      };
+
       this._stopProcedure();
       this._error(err);
-      this._parent?.send(createErrorActorEvent(this.id, err));
+      if (this._parent) {
+        this.system._relay(
+          this,
+          this._parent,
+          createErrorActorEvent(this.id, err)
+        );
+      }
       return;
     }
 
@@ -515,6 +560,11 @@ export class Actor<TLogic extends AnyActorLogic>
       reportUnhandledError(err);
     }
   }
+  // TODO: atm children don't belong entirely to the actor so
+  // in a way - it's not even super aware of them
+  // so we can't stop them from here but we really should!
+  // right now, they are being stopped within the machine's transition
+  // but that could throw and leave us with "orhphaned" active actors
   private _stopProcedure(): this {
     if (this._processingStatus !== ProcessingStatus.Running) {
       // Actor already stopped; do nothing
