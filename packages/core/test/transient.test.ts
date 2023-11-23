@@ -614,18 +614,14 @@ describe('transient states (eventless transitions)', () => {
     expect(() => actorRef.start()).not.toThrow();
   });
 
-  it('should be taken even in absence of other transitions', () => {
-    let shouldMatch = false;
-
+  it('should not be taken even in absence of other transitions', () => {
     const machine = createMachine({
       initial: 'a',
       states: {
         a: {
           always: {
             target: 'b',
-            // TODO: in v5 remove `shouldMatch` and replace this guard with:
-            // guard: (ctx, ev) => ev.type === 'WHATEVER'
-            guard: () => shouldMatch
+            guard: ({ event }) => event.type === 'WHATEVER'
           }
         },
         b: {}
@@ -633,13 +629,12 @@ describe('transient states (eventless transitions)', () => {
     });
     const actorRef = createActor(machine).start();
 
-    shouldMatch = true;
     actorRef.send({ type: 'WHATEVER' });
 
     expect(actorRef.getSnapshot().value).toBe('b');
   });
 
-  it('should select subsequent transient transitions even in absence of other transitions', () => {
+  it('should not select subsequent transient transitions in absence of other transitions', () => {
     let shouldMatch = false;
 
     const machine = createMachine({
@@ -648,9 +643,7 @@ describe('transient states (eventless transitions)', () => {
         a: {
           always: {
             target: 'b',
-            // TODO: in v5 remove `shouldMatch` and replace this guard with:
-            // guard: (ctx, ev) => ev.type === 'WHATEVER'
-            guard: () => shouldMatch
+            guard: ({ event }) => event.type === 'WHATEVER'
           }
         },
         b: {
@@ -665,7 +658,6 @@ describe('transient states (eventless transitions)', () => {
 
     const actorRef = createActor(machine).start();
 
-    shouldMatch = true;
     actorRef.send({ type: 'WHATEVER' });
 
     expect(actorRef.getSnapshot().value).toBe('c');
